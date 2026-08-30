@@ -79,7 +79,7 @@
       <h2 id="read-title">The curve and the cost are related—not identical.</h2>
       <div class="reading-grid">
         <p><strong>Sigma</strong> shows the noise level passed into each nominal sampling interval. A steep segment removes more noise at once.</p>
-        <p><strong>Log + 0</strong> expands the low-noise tail with a symmetric-log axis. It stays logarithmic above <code>1e-4</code>, then uses a tiny linear zone so every curve reaches its real terminal zero.</p>
+        <p><strong>Log + 0</strong> expands the low-noise tail with a symmetric-log axis. It stays logarithmic above <code>1e-3</code>, then uses a short linear zone so every curve reaches its real terminal zero.</p>
         <p><strong>Δsigma</strong> is the signed drop <code>σᵢ − σᵢ₊₁</code>. Peaks reveal where a schedule concentrates its movement.</p>
         <p><strong>Requested steps</strong> normally produces that many intervals. Solver choice can add model calls, so this is not a universal NFE counter.</p>
       </div>

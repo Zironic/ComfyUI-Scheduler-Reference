@@ -19,7 +19,7 @@
   const order = data.scheduler_order;
   const $ = (selector) => document.querySelector(selector);
   const compact = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 5 });
-  const logLinearThreshold = 1e-4;
+  const logLinearThreshold = 1e-3;
 
   function sourceRoot() {
     return `${data.generated_from.repository}/tree/${data.generated_from.commit}`;
@@ -108,7 +108,7 @@
       const radius = mini ? 5 : 6;
       return `<g stroke="#d23b3b" stroke-width="2.2" pointer-events="none"><line x1="${px - radius}" y1="${py - radius}" x2="${px + radius}" y2="${py + radius}"/><line x1="${px + radius}" y1="${py - radius}" x2="${px - radius}" y2="${py + radius}"/></g>`;
     }).join("") : "";
-    const logNote = logScale && !mini ? `<text x="${width - margin.right}" y="${height - margin.bottom - 10}" text-anchor="end" fill="#d23b3b" font-size="11" font-family="Cascadia Mono,monospace">symlog linear zone 0…1e-4 includes terminal σ=0</text>` : "";
+    const logNote = logScale && !mini ? `<text x="${width - margin.right}" y="${height - margin.bottom - 10}" text-anchor="end" fill="#d23b3b" font-size="11" font-family="Cascadia Mono,monospace">symlog linear zone 0…1e-3 includes terminal σ=0</text>` : "";
 
     const cursorIndex = state.cursor === null ? Math.round(xMax / 2) : Math.min(xMax, state.cursor);
     const cursor = mini ? "" : `<g class="plot-cursor" pointer-events="none"><line x1="${x(cursorIndex)}" y1="${margin.top}" x2="${x(cursorIndex)}" y2="${height - margin.bottom}" stroke="#d23b3b" stroke-width="1.5" stroke-dasharray="4 4"/><circle cx="${x(cursorIndex)}" cy="${margin.top}" r="5" fill="#d23b3b"/></g>`;

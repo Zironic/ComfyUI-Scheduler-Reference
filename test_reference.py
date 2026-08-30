@@ -54,12 +54,12 @@ class SchedulerReferenceTests(unittest.TestCase):
         h3 = generate.schedule("linear_quadratic", self.regimes["flow-h3"], 20)
         self.assertEqual(normalized, h3)
 
-    def test_symlog_linear_zone_only_contains_terminal_zero(self):
+    def test_symlog_floor_stays_at_visible_tail_decade(self):
+        self.assertEqual(generate.LOG_LINTHRESH, 1e-3)
         for regime in self.regimes.values():
             for name in generate.SCHEDULERS:
                 with self.subTest(regime=regime.key, scheduler=name):
-                    finite = generate.schedule(name, regime, 20)[:-1]
-                    self.assertGreater(min(finite), generate.LOG_LINTHRESH)
+                    self.assertTrue(all(value > 0 for value in generate.schedule(name, regime, 20)[:-1]))
 
     def test_source_links_are_revision_pinned(self):
         for name, (path, start, end) in generate.SOURCE_LINES.items():

@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent
 COMFY_COMMIT = (ROOT / "COMFYUI_COMMIT").read_text(encoding="utf-8").strip()
 DEFAULT_STEPS = 20
 STEP_RANGE = range(2, 51)
-LOG_LINTHRESH = 1e-4
+LOG_LINTHRESH = 1e-3
 
 SCHEDULERS = (
     "simple",
@@ -409,7 +409,7 @@ def style_axes(axis, title: str, metric: str, details: str, scale: str = "linear
     axis.text(0.0, 1.015, textwrap.fill(details, width=125), transform=axis.transAxes, fontsize=7.5, color="#566674", va="bottom")
     axis.set_xlabel("Schedule interval / nominal evaluation", color="#566674")
     if metric == "sigma":
-        axis.set_ylabel("Sigma (symlog; linear below 1e-4)" if scale == "log" else "Sigma", color="#566674")
+        axis.set_ylabel("Sigma (symlog; linear below 1e-3)" if scale == "log" else "Sigma", color="#566674")
     else:
         axis.set_ylabel("Sigma drop per evaluation", color="#566674")
     axis.grid(True, color="#cbd5dc", linewidth=0.7, alpha=0.7)
@@ -452,7 +452,7 @@ def generate_assets(dataset: dict) -> None:
             if metric == "sigma":
                 terminal_index = max(len(values[name]["sigmas"]) - 1 for name in SCHEDULERS)
                 axis.scatter([terminal_index], [0.0], marker="X", s=48, color="#d23b3b", zorder=8)
-                terminal_label = "appended terminal zero · symlog linear zone ≤1e-4" if scale == "log" else "appended terminal zero"
+                terminal_label = "appended terminal zero · symlog linear zone ≤1e-3" if scale == "log" else "appended terminal zero"
                 axis.annotate(terminal_label, (terminal_index, 0.0), xytext=(-7, 13), textcoords="offset points", ha="right", fontsize=7.5, color="#d23b3b")
             save_figure(figure, ROOT / "assets" / regime_key / f"all-schedulers-{metric_slug}")
 
@@ -484,7 +484,7 @@ def generate_assets(dataset: dict) -> None:
                         color="#162a3a",
                         arrowprops={"arrowstyle": "-", "color": "#8ea1ad", "linewidth": 0.8},
                     )
-                    terminal_label = "appended 0 · linear zone ≤1e-4" if scale == "log" else "appended 0"
+                    terminal_label = "appended 0 · linear zone ≤1e-3" if scale == "log" else "appended 0"
                     axis.annotate(terminal_label, (len(series) - 1, 0.0), xytext=(-6, 9), textcoords="offset points", ha="right", fontsize=7.5, color="#d23b3b")
                 save_figure(figure, ROOT / "assets" / regime_key / f"{name}-{metric_slug}")
 

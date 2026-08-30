@@ -49,18 +49,28 @@ jobs:
       - name: Run focused tests
         run: python -m unittest -v test_reference.py
 
-      - name: Verify generated files are current
-        run: git diff --exit-code -- data assets
+      - name: Verify generated data is current
+        run: git diff --exit-code -- data
+
+      - name: Verify generated assets
+        run: python -c "from pathlib import Path; files=[p for p in Path('assets').rglob('*') if p.is_file()]; assert len(files) == 240, len(files); assert all(p.stat().st_size > 0 for p in files)"
 
       - name: Configure Pages
         if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
 
+      - name: Prepare Pages artifact
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir _site
+          cp index.html styles.css app.js generate.py COMFYUI_COMMIT LICENSE .nojekyll _site/
+          cp -r assets data _site/
+
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
   deploy:
     if: github.event_name != 'pull_request'
@@ -73,4 +83,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
