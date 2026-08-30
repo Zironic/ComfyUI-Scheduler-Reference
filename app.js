@@ -316,19 +316,6 @@
       const alpha = !mini && state.focus && !focused ? 0.18 : 1;
       const color = colorFor(name);
 
-      if (mini && state.metric === "sigma") {
-        const fill = ctx.createLinearGradient(0, plot.top, 0, plot.bottom);
-        fill.addColorStop(0, `${color}25`);
-        fill.addColorStop(1, `${color}00`);
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, plot.bottom);
-        traceSmoothPath(ctx, points);
-        ctx.lineTo(points[points.length - 1].x, plot.bottom);
-        ctx.closePath();
-        ctx.fillStyle = fill;
-        ctx.fill();
-      }
-
       drawSeriesPath(ctx, points, {
         color,
         alpha,
