@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parent
 COMFY_COMMIT = (ROOT / "COMFYUI_COMMIT").read_text(encoding="utf-8").strip()
 DEFAULT_STEPS = 20
 STEP_RANGE = range(2, 51)
+LOG_LINTHRESH = 1e-4
 
 SCHEDULERS = (
     "simple",
@@ -408,7 +409,7 @@ def style_axes(axis, title: str, metric: str, details: str, scale: str = "linear
     axis.text(0.0, 1.015, textwrap.fill(details, width=125), transform=axis.transAxes, fontsize=7.5, color="#566674", va="bottom")
     axis.set_xlabel("Schedule interval / nominal evaluation", color="#566674")
     if metric == "sigma":
-        axis.set_ylabel("Sigma (log scale)" if scale == "log" else "Sigma", color="#566674")
+        axis.set_ylabel("Sigma (symlog; linear below 1e-4)" if scale == "log" else "Sigma", color="#566674")
     else:
         axis.set_ylabel("Sigma drop per evaluation", color="#566674")
     axis.grid(True, color="#cbd5dc", linewidth=0.7, alpha=0.7)
@@ -436,46 +437,40 @@ def generate_assets(dataset: dict) -> None:
             figure.patch.set_facecolor("#f4f7f8")
             for name in SCHEDULERS:
                 series = values[name]["sigmas" if metric == "sigma" else "drops"]
-                plotted = series[:-1] if scale == "log" else series
-                axis.plot(range(len(plotted)), plotted, label=name, color=COLORS[name], linewidth=2.2)
+                axis.plot(range(len(series)), series, label=name, color=COLORS[name], linewidth=2.2)
             if scale == "log":
-                axis.set_yscale("log")
+                axis.set_yscale("symlog", linthresh=LOG_LINTHRESH, linscale=0.9, base=10)
             style_axes(
                 axis,
-                f"{regime['name']} · all schedulers · steps={DEFAULT_STEPS}" + (" · log sigma" if scale == "log" else ""),
+                f"{regime['name']} · all schedulers · steps={DEFAULT_STEPS}" + (" · log sigma + terminal zero" if scale == "log" else ""),
                 metric,
                 f"requested steps={DEFAULT_STEPS} · {regime['parameters']}",
                 scale,
             )
             legend = axis.legend(ncol=3, frameon=True, fontsize=9, facecolor="#f4f7f8", framealpha=0.92)
             legend.get_frame().set_edgecolor("none")
-            if metric == "sigma" and scale == "linear":
+            if metric == "sigma":
                 terminal_index = max(len(values[name]["sigmas"]) - 1 for name in SCHEDULERS)
                 axis.scatter([terminal_index], [0.0], marker="X", s=48, color="#d23b3b", zorder=8)
-                axis.annotate("appended terminal zero", (terminal_index, 0.0), xytext=(-7, 13), textcoords="offset points", ha="right", fontsize=7.5, color="#d23b3b")
-            elif metric == "sigma":
-                terminal_index = max(len(values[name]["sigmas"]) - 1 for name in SCHEDULERS)
-                axis.set_xlim(0, terminal_index)
-                axis.axvline(terminal_index, color="#d23b3b", linewidth=1.1, linestyle="--")
-                axis.text(0.99, 0.02, "terminal σ=0 excluded from log scale", transform=axis.transAxes, ha="right", color="#d23b3b", fontsize=7.5)
+                terminal_label = "appended terminal zero · symlog linear zone ≤1e-4" if scale == "log" else "appended terminal zero"
+                axis.annotate(terminal_label, (terminal_index, 0.0), xytext=(-7, 13), textcoords="offset points", ha="right", fontsize=7.5, color="#d23b3b")
             save_figure(figure, ROOT / "assets" / regime_key / f"all-schedulers-{metric_slug}")
 
             for name in SCHEDULERS:
                 series = values[name]["sigmas" if metric == "sigma" else "drops"]
                 figure, axis = plt.subplots(figsize=(8, 4.8), layout="constrained")
                 figure.patch.set_facecolor("#f4f7f8")
-                plotted = series[:-1] if scale == "log" else series
-                axis.plot(range(len(plotted)), plotted, color=COLORS[name], linewidth=2.8, marker="o", markersize=3)
+                axis.plot(range(len(series)), series, color=COLORS[name], linewidth=2.8, marker="o", markersize=3)
                 if scale == "log":
-                    axis.set_yscale("log")
+                    axis.set_yscale("symlog", linthresh=LOG_LINTHRESH, linscale=0.9, base=10)
                 style_axes(
                     axis,
-                    f"{name} · {regime['short_name']} · steps={DEFAULT_STEPS}" + (" · log sigma" if scale == "log" else ""),
+                    f"{name} · {regime['short_name']} · steps={DEFAULT_STEPS}" + (" · log sigma + terminal zero" if scale == "log" else ""),
                     metric,
                     f"{PARAMETERS[name].format(steps=DEFAULT_STEPS)} · {regime['parameters']}",
                     scale,
                 )
-                if metric == "sigma" and scale == "linear":
+                if metric == "sigma":
                     last_finite_index = len(series) - 2
                     last_finite = series[last_finite_index]
                     axis.scatter([len(series) - 1], [0.0], marker="X", s=48, color="#d23b3b", zorder=8)
@@ -489,12 +484,8 @@ def generate_assets(dataset: dict) -> None:
                         color="#162a3a",
                         arrowprops={"arrowstyle": "-", "color": "#8ea1ad", "linewidth": 0.8},
                     )
-                    axis.annotate("appended 0", (len(series) - 1, 0.0), xytext=(-6, 9), textcoords="offset points", ha="right", fontsize=7.5, color="#d23b3b")
-                elif metric == "sigma":
-                    terminal_index = len(series) - 1
-                    axis.set_xlim(0, terminal_index)
-                    axis.axvline(terminal_index, color="#d23b3b", linewidth=1.1, linestyle="--")
-                    axis.text(0.99, 0.02, "terminal σ=0 excluded", transform=axis.transAxes, ha="right", color="#d23b3b", fontsize=7.5)
+                    terminal_label = "appended 0 · linear zone ≤1e-4" if scale == "log" else "appended 0"
+                    axis.annotate(terminal_label, (len(series) - 1, 0.0), xytext=(-6, 9), textcoords="offset points", ha="right", fontsize=7.5, color="#d23b3b")
                 save_figure(figure, ROOT / "assets" / regime_key / f"{name}-{metric_slug}")
 
 

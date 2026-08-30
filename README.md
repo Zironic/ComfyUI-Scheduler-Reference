@@ -13,7 +13,7 @@ The visualizer compares linear sigma, log sigma, and signed sigma drop across fo
 - **Krea 2** — `ModelSamplingFlux`, `shift=1.15`, `timesteps=10000`.
 - **Classic SD / SDXL** — `ModelSamplingDiscrete`, linear beta schedule, `linear_start=0.00085`, `linear_end=0.012`, `timesteps=1000`.
 
-The default plots use `steps=20`. The site can interactively show requested step counts from 2 through 50 and switch sigma between linear and logarithmic scales. Log plots omit the appended terminal zero because zero is undefined on a logarithmic axis, and mark that omission explicitly. Every scheduler card links to its exact function in the pinned ComfyUI revision and to reusable SVG and PNG assets.
+The default plots use `steps=20`. The site can interactively show requested step counts from 2 through 50 and switch sigma between linear and symmetric-log scales. The “Log + 0” view is logarithmic above `1e-4`, then uses a linear zone down to the appended terminal zero so every curve visibly terminates. Every scheduler card links to its exact function in the pinned ComfyUI revision and to reusable SVG and PNG assets.
 
 ## What “evaluation” means here
 

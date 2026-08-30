@@ -54,6 +54,13 @@ class SchedulerReferenceTests(unittest.TestCase):
         h3 = generate.schedule("linear_quadratic", self.regimes["flow-h3"], 20)
         self.assertEqual(normalized, h3)
 
+    def test_symlog_linear_zone_only_contains_terminal_zero(self):
+        for regime in self.regimes.values():
+            for name in generate.SCHEDULERS:
+                with self.subTest(regime=regime.key, scheduler=name):
+                    finite = generate.schedule(name, regime, 20)[:-1]
+                    self.assertGreater(min(finite), generate.LOG_LINTHRESH)
+
     def test_source_links_are_revision_pinned(self):
         for name, (path, start, end) in generate.SOURCE_LINES.items():
             self.assertEqual(generate.source_url(path, start, end), f"https://github.com/Comfy-Org/ComfyUI/blob/{generate.COMFY_COMMIT}/{path}#L{start}-L{end}")
