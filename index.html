@@ -3,60 +3,60 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Compare every built-in ComfyUI scheduler across normalized, MiniMax H3 flow, and classic SD/SDXL sampling regimes.">
-  <title>ComfyUI Scheduler Visualizer</title>
+  <meta name="theme-color" content="#0a0f18">
+  <meta name="description" content="Interactive ComfyUI scheduler reference: compare sigma allocation across normalized, MiniMax H3 flow, Krea 2, and classic SD/SDXL sampling regimes.">
+  <title>ComfyUI Scheduler Reference</title>
   <link rel="stylesheet" href="styles.css">
   <script defer src="data/schedules.js"></script>
   <script defer src="app.js"></script>
 </head>
 <body>
-  <a class="skip-link" href="#reference">Skip to scheduler reference</a>
+  <a class="skip-link" href="#visualizer">Skip to visualizer</a>
+
   <header class="site-header">
-    <a class="wordmark" href="#top" aria-label="ComfyUI Scheduler Visualizer home">
-      <span class="wordmark-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span>ComfyUI<br>Scheduler Visualizer</span>
+    <a class="brand" href="#top" aria-label="ComfyUI Scheduler Reference home">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span><strong>ComfyUI</strong><small>Scheduler Reference</small></span>
     </a>
     <nav aria-label="Project links">
-      <a id="source-repository" href="https://github.com/Comfy-Org/ComfyUI">Pinned source</a>
-      <a href="https://github.com/Zironic/ComfyUI-Scheduler-Reference">GitHub</a>
+      <a id="source-repository" href="https://github.com/Comfy-Org/ComfyUI">Pinned ComfyUI source</a>
+      <a href="https://github.com/Zironic/ComfyUI-Scheduler-Reference">Repository</a>
     </nav>
   </header>
 
   <main id="top">
-    <section class="hero" aria-labelledby="page-title">
+    <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">A generated reference for ComfyUI</p>
-        <h1 id="page-title">See where every<br><em>sigma goes.</em></h1>
-        <p class="lede">Schedulers do not live in isolation. Compare the same requested step count through a neutral sigma table, MiniMax H3 flow, Krea 2, and classic SD/SDXL diffusion.</p>
+        <p class="eyebrow">Sigma allocation, made visible</p>
+        <h1>Same step count.<br><span>Very different paths.</span></h1>
+        <p class="lede">Compare every built-in ComfyUI scheduler against the same model-sampling regime. Change the step count, inspect exact values, isolate curves, and switch between sigma and per-step sigma drop.</p>
       </div>
-      <dl class="hero-facts">
+      <dl class="hero-stats" aria-label="Reference statistics">
         <div><dt>Schedulers</dt><dd id="scheduler-count">9</dd></div>
-        <div><dt>Default steps</dt><dd>20</dd></div>
-        <div><dt>Source revision</dt><dd><a id="source-commit" href="#">loading…</a></dd></div>
+        <div><dt>Interactive steps</dt><dd id="step-range">2–50</dd></div>
+        <div><dt>ComfyUI pin</dt><dd><a id="source-commit" href="#">loading…</a></dd></div>
       </dl>
     </section>
 
-    <section class="instrument" aria-labelledby="comparison-title">
-      <div class="instrument-head">
+    <section id="visualizer" class="visualizer" aria-labelledby="visualizer-title">
+      <div class="section-heading">
         <div>
-          <p class="section-label">Comparison plot</p>
-          <h2 id="comparison-title">All schedulers, one sampling regime</h2>
+          <p class="section-kicker">Interactive comparison</p>
+          <h2 id="visualizer-title">Where the scheduler spends its steps</h2>
         </div>
-        <p class="scrub-hint"><span aria-hidden="true">↔</span> Scrub the plot for exact values</p>
+        <p class="section-note">Hover the plot for exact values. Click a legend item to hide it; <kbd>Shift</kbd> + click isolates it.</p>
       </div>
 
       <div class="regime-tabs" id="regime-tabs" role="tablist" aria-label="Model sampling regime"></div>
 
-      <div class="control-rail">
-        <div class="plot-controls">
-          <div class="metric-control" role="group" aria-label="Plot metric">
-            <button type="button" data-metric="sigma" aria-pressed="true">Sigma</button>
-            <button type="button" data-metric="drops" aria-pressed="false">Δsigma</button>
-          </div>
-          <div class="scale-control" role="group" aria-label="Sigma scale">
-            <button type="button" data-scale="linear" aria-pressed="true">Linear</button>
-            <button type="button" data-scale="log" aria-pressed="false">Log + 0</button>
-          </div>
+      <div class="control-bar">
+        <div class="segmented" role="group" aria-label="Plot metric">
+          <button type="button" data-metric="sigma" aria-pressed="true">Sigma</button>
+          <button type="button" data-metric="drops" aria-pressed="false">Δsigma</button>
+        </div>
+        <div class="segmented scale-control" role="group" aria-label="Sigma scale">
+          <button type="button" data-scale="linear" aria-pressed="true">Linear</button>
+          <button type="button" data-scale="log" aria-pressed="false">Log + 0</button>
         </div>
         <label class="steps-control" for="steps">
           <span>Requested steps</span>
@@ -65,51 +65,74 @@
         </label>
       </div>
 
-      <div class="regime-note" id="regime-note"></div>
-      <div class="plot-shell">
-        <div id="overlay-plot" class="plot plot-large" aria-label="Scheduler comparison chart"></div>
-        <aside id="plot-readout" class="plot-readout" aria-live="polite"></aside>
+      <div class="chart-card">
+        <div class="chart-card-head">
+          <div>
+            <p id="chart-regime-name" class="chart-title">Normalized scheduling space</p>
+            <p id="regime-note" class="chart-subtitle"></p>
+          </div>
+          <div class="chart-actions">
+            <button id="reset-lines" class="text-button" type="button">Show all</button>
+            <button id="copy-link" class="text-button" type="button">Copy view link</button>
+            <button id="download-chart" class="text-button" type="button">Download PNG</button>
+          </div>
+        </div>
+
+        <div class="chart-stage" id="chart-stage">
+          <canvas id="overlay-canvas" role="img" aria-label="Scheduler comparison chart"></canvas>
+          <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+        </div>
+
+        <div id="legend" class="legend" aria-label="Scheduler visibility"></div>
+        <div class="chart-foot">
+          <span id="chart-axis-note">x: schedule interval · y: sigma</span>
+          <a href="data/schedules.json">Raw JSON</a>
+        </div>
       </div>
-      <div id="legend" class="legend" aria-label="Toggle scheduler lines"></div>
-      <div class="asset-links" id="overlay-assets"></div>
     </section>
 
-    <section class="how-to-read" aria-labelledby="read-title">
-      <p class="section-label">How to read it</p>
-      <h2 id="read-title">The curve and the cost are related—not identical.</h2>
+    <section class="reading" aria-labelledby="reading-title">
+      <div class="section-heading compact">
+        <div>
+          <p class="section-kicker">How to read it</p>
+          <h2 id="reading-title">The shape is the scheduler.</h2>
+        </div>
+      </div>
       <div class="reading-grid">
-        <p><strong>Sigma</strong> shows the noise level passed into each nominal sampling interval. A steep segment removes more noise at once.</p>
-        <p><strong>Log + 0</strong> expands the low-noise tail with a symmetric-log axis. It stays logarithmic above <code>1e-3</code>, then uses a short linear zone so every curve reaches its real terminal zero.</p>
-        <p><strong>Δsigma</strong> is the signed drop <code>σᵢ − σᵢ₊₁</code>. Peaks reveal where a schedule concentrates its movement.</p>
-        <p><strong>Requested steps</strong> normally produces that many intervals. Solver choice can add model calls, so this is not a universal NFE counter.</p>
+        <article><strong>Steep curve</strong><p>A large sigma interval is crossed in one step. The scheduler is spending less of its budget there.</p></article>
+        <article><strong>Flat curve</strong><p>Many evaluations cover a small sigma range. That part of the trajectory gets more of the step budget.</p></article>
+        <article><strong>Δsigma</strong><p>Turns the same schedule into per-step movement. Large peaks show where the biggest jumps occur.</p></article>
+        <article><strong>Log + 0</strong><p>Expands the low-noise tail while keeping the real terminal zero visible with a short linear zone below 1e-3.</p></article>
       </div>
     </section>
 
     <section id="reference" class="reference" aria-labelledby="reference-title">
-      <div class="reference-head">
+      <div class="section-heading">
         <div>
-          <p class="section-label">Scheduler index</p>
-          <h2 id="reference-title">One trace at a time</h2>
+          <p class="section-kicker">Scheduler index</p>
+          <h2 id="reference-title">Each curve on its own</h2>
         </div>
-        <p>Every card links to the exact function in the pinned ComfyUI revision and to ready-to-embed SVG and PNG files.</p>
+        <p class="section-note">Cards follow the active regime, metric, scale, and step count above.</p>
       </div>
       <div id="scheduler-cards" class="scheduler-grid"></div>
     </section>
 
     <section class="method" aria-labelledby="method-title">
-      <p class="section-label">Method</p>
-      <h2 id="method-title">Generated, pinned, inspectable.</h2>
-      <div class="method-grid">
-        <p>The Python generator reimplements the small scheduler formulas, verifies the registry and H3 settings against the pinned checkout, then writes the site data and all static assets.</p>
-        <p>The normalized tab is a declared canonical model-sampling object—not a claim that every scheduler is model-independent. Simple, DDIM, beta, normal, and SGM uniform depend on the supplied sigma table or timestep mapping.</p>
-        <p><a href="data/schedules.json">Download the complete JSON dataset</a> or <a href="generate.py">inspect the generator</a>. CI refuses to generate from a ComfyUI revision other than the repository pin.</p>
+      <div>
+        <p class="section-kicker">Method</p>
+        <h2 id="method-title">Pinned data, browser-rendered charts.</h2>
+      </div>
+      <div class="method-copy">
+        <p>The Python generator reimplements the small scheduler formulas and verifies them against a pinned ComfyUI checkout. It produces the complete dataset for steps 2–50.</p>
+        <p>The live charts are rendered at device resolution in the browser with HTML Canvas. They are not screenshots or pre-rendered SVGs, so resizing, hovering, filtering, and changing steps all operate on the underlying data.</p>
+        <p><a href="generate.py">Inspect the generator</a> · <a id="footer-source" href="https://github.com/Comfy-Org/ComfyUI">Inspect the pinned ComfyUI revision</a></p>
       </div>
     </section>
   </main>
 
   <footer>
-    <p>ComfyUI Scheduler Visualizer</p>
-    <p>Generated from <a id="footer-source" href="https://github.com/Comfy-Org/ComfyUI">ComfyUI</a>. No runtime, no tracking, no mystery.</p>
+    <span>ComfyUI Scheduler Reference</span>
+    <span>No tracking. No runtime backend. Just the generated schedule data.</span>
   </footer>
 </body>
 </html>
