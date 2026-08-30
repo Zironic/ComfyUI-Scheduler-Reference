@@ -3,9 +3,27 @@
 
   const data = window.SCHEDULER_DATA;
   if (!data) {
-    document.body.innerHTML = "<p>Generated scheduler data is missing. Run generate.py.</p>";
+    document.body.innerHTML = '<main class="error-state"><h1>Scheduler data is missing.</h1><p>Run <code>generate.py</code> and make sure <code>data/schedules.js</code> is deployed beside this page.</p></main>';
     return;
   }
+
+  const $ = (selector, root = document) => root.querySelector(selector);
+  const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  const order = data.scheduler_order;
+  const number = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 5 });
+  const LOG_LINTHRESH = 1e-3;
+
+  const COLORS = {
+    simple: "#4cc9f0",
+    sgm_uniform: "#fb923c",
+    karras: "#a78bfa",
+    exponential: "#f472b6",
+    ddim_uniform: "#4ade80",
+    beta: "#facc15",
+    normal: "#60a5fa",
+    linear_quadratic: "#f87171",
+    kl_optimal: "#d6d3d1",
+  };
 
   const state = {
     regime: data.defaults.regime,
@@ -14,28 +32,48 @@
     steps: data.defaults.steps,
     hidden: new Set(),
     cursor: null,
+    focus: null,
   };
 
-  const order = data.scheduler_order;
-  const $ = (selector) => document.querySelector(selector);
-  const compact = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 5 });
-  const logLinearThreshold = 1e-3;
+  let resizeFrame = 0;
+  let mainGeometry = null;
+
+  function colorFor(name) {
+    return COLORS[name] || data.schedulers[name].color || "#ffffff";
+  }
+
+  function formatValue(value) {
+    if (value === undefined || value === null || Number.isNaN(value)) return "—";
+    if (value === 0) return "0";
+    if (Math.abs(value) < 0.0001 || Math.abs(value) >= 10000) return value.toExponential(3);
+    return number.format(value);
+  }
 
   function sourceRoot() {
     return `${data.generated_from.repository}/tree/${data.generated_from.commit}`;
   }
 
   function parseHash() {
-    const match = location.hash.match(/^#view=([^&]+)&metric=(sigma|drops)&scale=(linear|log)&steps=(\d+)$/);
-    if (!match || !data.regimes[match[1]]) return;
-    state.regime = match[1];
-    state.metric = match[2];
-    state.scale = state.metric === "sigma" ? match[3] : "linear";
-    state.steps = Math.min(data.step_range.max, Math.max(data.step_range.min, Number(match[4])));
+    const params = new URLSearchParams(location.hash.replace(/^#/, ""));
+    const regime = params.get("view");
+    const metric = params.get("metric");
+    const scale = params.get("scale");
+    const steps = Number(params.get("steps"));
+    if (regime && data.regimes[regime]) state.regime = regime;
+    if (metric === "sigma" || metric === "drops") state.metric = metric;
+    if (scale === "linear" || scale === "log") state.scale = scale;
+    if (Number.isFinite(steps)) state.steps = Math.min(data.step_range.max, Math.max(data.step_range.min, Math.round(steps)));
+    if (state.metric !== "sigma") state.scale = "linear";
   }
 
   function updateHash() {
-    history.replaceState(null, "", `#view=${state.regime}&metric=${state.metric}&scale=${state.scale}&steps=${state.steps}`);
+    const params = new URLSearchParams({
+      view: state.regime,
+      metric: state.metric,
+      scale: state.scale,
+      steps: String(state.steps),
+    });
+    history.replaceState(null, "", `#${params.toString()}`);
   }
 
   function currentSchedules() {
@@ -46,201 +84,443 @@
     return currentSchedules()[name][state.metric];
   }
 
-  function formatValue(value) {
-    if (value === undefined) return "—";
-    if (value !== 0 && Math.abs(value) < 0.0001) return value.toExponential(3);
-    return compact.format(value);
+  function visibleNames() {
+    return order.filter((name) => !state.hidden.has(name));
   }
 
-  function makeSvg(names, mini = false) {
-    const width = mini ? 520 : 1100;
-    const height = mini ? 245 : 500;
-    const margin = mini ? { left: 42, right: 18, top: 20, bottom: 34 } : { left: 72, right: 28, top: 26, bottom: 58 };
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
-    const visible = names.filter((name) => !state.hidden.has(name));
+  function symlog(value) {
+    if (value <= LOG_LINTHRESH) return value / LOG_LINTHRESH;
+    return 1 + Math.log10(value / LOG_LINTHRESH);
+  }
+
+  function niceLinearTicks(maxValue, count = 5) {
+    if (!(maxValue > 0)) return [0, 1];
+    const raw = maxValue / count;
+    const magnitude = 10 ** Math.floor(Math.log10(raw));
+    const residual = raw / magnitude;
+    const nice = residual >= 5 ? 5 : residual >= 2 ? 2 : 1;
+    const step = nice * magnitude;
+    const top = Math.ceil(maxValue / step) * step;
+    const ticks = [];
+    for (let value = 0; value <= top + step * 0.25; value += step) ticks.push(value);
+    return ticks;
+  }
+
+  function logTicks(maxValue) {
+    const ticks = [0, LOG_LINTHRESH];
+    for (let value = LOG_LINTHRESH * 10; value <= maxValue * 1.001; value *= 10) ticks.push(value);
+    if (maxValue > ticks[ticks.length - 1] * 1.45) ticks.push(maxValue);
+    return [...new Set(ticks)].sort((a, b) => a - b);
+  }
+
+  function setupCanvas(canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(1, rect.width);
+    const height = Math.max(1, rect.height);
+    const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+    const pixelWidth = Math.max(1, Math.round(width * dpr));
+    const pixelHeight = Math.max(1, Math.round(height * dpr));
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, width, height };
+  }
+
+  function drawChart(canvas, names, { mini = false, cursor = null } = {}) {
+    const { ctx, width, height } = setupCanvas(canvas);
+    const visible = mini ? names : names.filter((name) => !state.hidden.has(name));
+    if (!visible.length) return null;
+
+    const margin = mini
+      ? { left: 14, right: 12, top: 13, bottom: 18 }
+      : { left: width < 640 ? 54 : 66, right: 24, top: 24, bottom: 48 };
+    const plot = {
+      left: margin.left,
+      top: margin.top,
+      right: width - margin.right,
+      bottom: height - margin.bottom,
+    };
+    plot.width = Math.max(1, plot.right - plot.left);
+    plot.height = Math.max(1, plot.bottom - plot.top);
+
+    const values = visible.flatMap((name) => seriesFor(name));
+    const rawMax = Math.max(...values, 0);
     const logScale = state.metric === "sigma" && state.scale === "log";
-    const allValues = visible.flatMap((name) => seriesFor(name));
-    let yMin = Math.min(0, ...allValues);
-    let yMax = Math.max(...allValues);
-    if (yMax === yMin) yMax = yMin + 1;
-    if (!logScale) {
-      const pad = (yMax - yMin) * 0.04;
-      yMax += pad;
-      if (yMin < 0) yMin -= pad;
-    }
+    const yTicks = logScale ? logTicks(rawMax) : niceLinearTicks(rawMax, mini ? 3 : 5);
+    const yMaxRaw = yTicks[yTicks.length - 1] || rawMax || 1;
+    const yMax = logScale ? symlog(yMaxRaw) : yMaxRaw;
     const xMax = Math.max(1, ...visible.map((name) => seriesFor(name).length - 1));
-    const x = (value) => margin.left + (value / xMax) * innerWidth;
-    const symlog = (value) => value <= logLinearThreshold ? value / logLinearThreshold : 1 + Math.log10(value / logLinearThreshold);
-    const inverseSymlog = (value) => value <= 1 ? value * logLinearThreshold : logLinearThreshold * 10 ** (value - 1);
-    const symlogMax = symlog(yMax);
+
+    const x = (index) => plot.left + (index / xMax) * plot.width;
     const y = (value) => {
-      const ratio = logScale ? symlog(value) / symlogMax : (value - yMin) / (yMax - yMin);
-      return margin.top + (1 - ratio) * innerHeight;
+      const transformed = logScale ? symlog(Math.max(0, value)) : value;
+      return plot.bottom - (transformed / yMax) * plot.height;
     };
-    const axisColor = "#80939f";
-    const gridColor = "#cbd5dc";
-    const textColor = "#61717d";
-    const grid = [];
-    const labels = [];
 
-    for (let tick = 0; tick <= 5; tick += 1) {
-      const value = logScale ? inverseSymlog((symlogMax * tick) / 5) : yMin + ((yMax - yMin) * tick) / 5;
-      const py = y(value);
-      grid.push(`<line x1="${margin.left}" y1="${py}" x2="${width - margin.right}" y2="${py}" stroke="${gridColor}" stroke-width="1"/>`);
-      if (!mini) labels.push(`<text x="${margin.left - 12}" y="${py + 4}" text-anchor="end" fill="${textColor}" font-size="12" font-family="Cascadia Mono,monospace">${formatValue(value)}</text>`);
-    }
-    for (let tick = 0; tick <= 5; tick += 1) {
-      const value = Math.round((xMax * tick) / 5);
-      const px = x(value);
-      grid.push(`<line x1="${px}" y1="${margin.top}" x2="${px}" y2="${height - margin.bottom}" stroke="${gridColor}" stroke-width="1"/>`);
-      labels.push(`<text x="${px}" y="${height - margin.bottom + (mini ? 20 : 25)}" text-anchor="middle" fill="${textColor}" font-size="${mini ? 11 : 12}" font-family="Cascadia Mono,monospace">${value}</text>`);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "#0d1520";
+    ctx.fillRect(0, 0, width, height);
+
+    const bgGradient = ctx.createLinearGradient(0, plot.top, 0, plot.bottom);
+    bgGradient.addColorStop(0, "rgba(103,232,249,0.025)");
+    bgGradient.addColorStop(1, "rgba(103,232,249,0)");
+    ctx.fillStyle = bgGradient;
+    ctx.fillRect(plot.left, plot.top, plot.width, plot.height);
+
+    ctx.save();
+    ctx.font = `${mini ? 9 : 10}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+    ctx.textBaseline = "middle";
+    ctx.strokeStyle = "rgba(123, 148, 177, 0.16)";
+    ctx.fillStyle = "#74869c";
+    ctx.lineWidth = 1;
+
+    for (const tick of yTicks) {
+      const py = y(tick);
+      ctx.beginPath();
+      ctx.moveTo(plot.left, py + 0.5);
+      ctx.lineTo(plot.right, py + 0.5);
+      ctx.stroke();
+      if (!mini) {
+        ctx.textAlign = "right";
+        ctx.fillText(formatValue(tick), plot.left - 10, py);
+      }
     }
 
-    const paths = visible.map((name) => {
-      const values = seriesFor(name);
-      const path = values.map((value, index) => `${index ? "L" : "M"}${x(index).toFixed(2)},${y(value).toFixed(2)}`).join(" ");
-      return `<path d="${path}" fill="none" stroke="${data.schedulers[name].color}" stroke-width="${mini ? 3 : 2.6}" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"><title>${name}</title></path>`;
-    }).join("");
-    const terminalMarkers = state.metric === "sigma" ? [...new Set(visible.map((name) => seriesFor(name).length - 1))].map((index) => {
+    const xTickCount = Math.min(6, xMax);
+    for (let i = 0; i <= xTickCount; i += 1) {
+      const index = Math.round((xMax * i) / xTickCount);
       const px = x(index);
-      const py = y(0);
-      const radius = mini ? 5 : 6;
-      return `<g stroke="#d23b3b" stroke-width="2.2" pointer-events="none"><line x1="${px - radius}" y1="${py - radius}" x2="${px + radius}" y2="${py + radius}"/><line x1="${px + radius}" y1="${py - radius}" x2="${px - radius}" y2="${py + radius}"/></g>`;
-    }).join("") : "";
-    const logNote = logScale && !mini ? `<text x="${width - margin.right}" y="${height - margin.bottom - 10}" text-anchor="end" fill="#d23b3b" font-size="11" font-family="Cascadia Mono,monospace">symlog linear zone 0…1e-3 includes terminal σ=0</text>` : "";
+      ctx.beginPath();
+      ctx.moveTo(px + 0.5, plot.top);
+      ctx.lineTo(px + 0.5, plot.bottom);
+      ctx.stroke();
+      if (!mini) {
+        ctx.textAlign = "center";
+        ctx.fillText(String(index), px, plot.bottom + 18);
+      }
+    }
+    ctx.restore();
 
-    const cursorIndex = state.cursor === null ? Math.round(xMax / 2) : Math.min(xMax, state.cursor);
-    const cursor = mini ? "" : `<g class="plot-cursor" pointer-events="none"><line x1="${x(cursorIndex)}" y1="${margin.top}" x2="${x(cursorIndex)}" y2="${height - margin.bottom}" stroke="#d23b3b" stroke-width="1.5" stroke-dasharray="4 4"/><circle cx="${x(cursorIndex)}" cy="${margin.top}" r="5" fill="#d23b3b"/></g>`;
-    const axisLabel = mini ? "" : `<text x="${margin.left + innerWidth / 2}" y="${height - 10}" text-anchor="middle" fill="${textColor}" font-size="12" font-family="Cascadia Mono,monospace">Schedule interval / nominal evaluation</text><text transform="translate(18 ${margin.top + innerHeight / 2}) rotate(-90)" text-anchor="middle" fill="${textColor}" font-size="12" font-family="Cascadia Mono,monospace">${state.metric === "sigma" ? `Sigma${logScale ? " (symlog + zero)" : ""}` : "Sigma drop"}</text>`;
-    return {
-      markup: `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${state.metric === "sigma" ? `${state.scale === "log" ? "symmetric-log" : "linear"} sigma` : "Sigma drop"} chart"><rect width="${width}" height="${height}" fill="#f4f7f8"/>${grid.join("")}${labels.join("")}<line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="${axisColor}"/>${paths}${terminalMarkers}${cursor}${axisLabel}${logNote}<rect class="plot-hit" x="${margin.left}" y="${margin.top}" width="${innerWidth}" height="${innerHeight}" fill="transparent" tabindex="0"/></svg>`,
-      geometry: { width, margin, innerWidth, xMax },
-      cursorIndex,
-    };
+    if (!mini) {
+      ctx.save();
+      ctx.font = `10px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+      ctx.fillStyle = "#8294aa";
+      ctx.textAlign = "center";
+      ctx.fillText("schedule interval / nominal evaluation", plot.left + plot.width / 2, height - 13);
+      ctx.translate(16, plot.top + plot.height / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(state.metric === "sigma" ? (logScale ? "sigma · symlog + zero" : "sigma") : "sigma drop", 0, 0);
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(plot.left, plot.top, plot.width, plot.height);
+    ctx.clip();
+
+    for (const name of visible) {
+      const series = seriesFor(name);
+      const isFocused = state.focus === null || state.focus === name;
+      const alpha = state.focus && state.focus !== name ? 0.16 : 1;
+      const color = colorFor(name);
+
+      if (mini && state.metric === "sigma") {
+        ctx.beginPath();
+        series.forEach((value, index) => {
+          const px = x(index);
+          const py = y(value);
+          if (index === 0) ctx.moveTo(px, plot.bottom);
+          ctx.lineTo(px, py);
+        });
+        ctx.lineTo(x(series.length - 1), plot.bottom);
+        ctx.closePath();
+        const fill = ctx.createLinearGradient(0, plot.top, 0, plot.bottom);
+        fill.addColorStop(0, `${color}22`);
+        fill.addColorStop(1, `${color}00`);
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = mini ? 2.2 : (isFocused ? 2.6 : 2.2);
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.shadowColor = mini ? "transparent" : `${color}45`;
+      ctx.shadowBlur = mini ? 0 : (isFocused ? 7 : 2);
+      ctx.beginPath();
+      series.forEach((value, index) => {
+        const px = x(index);
+        const py = y(value);
+        if (index === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
+    }
+
+    if (!mini && cursor !== null) {
+      const index = Math.min(xMax, Math.max(0, cursor));
+      const px = x(index);
+      ctx.strokeStyle = "rgba(226, 232, 240, .42)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.moveTo(px + 0.5, plot.top);
+      ctx.lineTo(px + 0.5, plot.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      for (const name of visible) {
+        const series = seriesFor(name);
+        if (index >= series.length) continue;
+        ctx.fillStyle = "#0d1520";
+        ctx.strokeStyle = colorFor(name);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, y(series[index]), 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    return { ...plot, xMax, x };
   }
 
-  function renderReadout(index) {
-    const rows = order.filter((name) => !state.hidden.has(name)).map((name) => {
-      const values = seriesFor(name);
-      return `<div class="readout-row"><i style="background:${data.schedulers[name].color}"></i><strong>${name}</strong><span>${formatValue(values[index])}</span></div>`;
+  function renderMainChart() {
+    mainGeometry = drawChart($("#overlay-canvas"), order, { cursor: state.cursor });
+  }
+
+  function renderTooltip(clientX, clientY) {
+    const tooltip = $("#chart-tooltip");
+    if (!mainGeometry || state.cursor === null) {
+      tooltip.hidden = true;
+      return;
+    }
+    const rows = visibleNames().map((name) => {
+      const series = seriesFor(name);
+      const value = series[state.cursor];
+      return `<div class="tooltip-row"><i style="background:${colorFor(name)}"></i><strong>${name}</strong><span>${formatValue(value)}</span></div>`;
     }).join("");
-    $("#plot-readout").innerHTML = `<div class="readout-head"><span>Interval ${index}</span><span>${state.metric === "sigma" ? "σ" : "σᵢ−σᵢ₊₁"}</span></div>${rows}`;
+    tooltip.innerHTML = `<div class="tooltip-head"><span>interval ${state.cursor}</span><span>${state.metric === "sigma" ? "σ" : "Δσ"}</span></div>${rows}`;
+    tooltip.hidden = false;
+
+    const stage = $("#chart-stage");
+    const rect = stage.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const tooltipWidth = tooltip.offsetWidth || 240;
+    const tooltipHeight = tooltip.offsetHeight || 250;
+    const x = Math.min(rect.width - tooltipWidth - 18, Math.max(8, localX + 12));
+    const y = Math.min(rect.height - tooltipHeight - 18, Math.max(8, localY + 12));
+    tooltip.style.left = `${x}px`;
+    tooltip.style.top = `${y}px`;
   }
 
-  function renderOverlay() {
-    const chart = makeSvg(order);
-    const host = $("#overlay-plot");
-    host.innerHTML = chart.markup;
-    renderReadout(chart.cursorIndex);
-    const svg = host.querySelector("svg");
-    const hit = host.querySelector(".plot-hit");
-
-    const setCursor = (clientX) => {
-      const rect = svg.getBoundingClientRect();
-      const relative = ((clientX - rect.left) / rect.width) * chart.geometry.width;
-      const plotX = Math.min(chart.geometry.innerWidth, Math.max(0, relative - chart.geometry.margin.left));
-      state.cursor = Math.round((plotX / chart.geometry.innerWidth) * chart.geometry.xMax);
-      renderPlotsOnly();
-    };
-    hit.addEventListener("pointermove", (event) => setCursor(event.clientX));
-    hit.addEventListener("pointerdown", (event) => setCursor(event.clientX));
-    hit.addEventListener("keydown", (event) => {
-      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-      event.preventDefault();
-      state.cursor = Math.min(chart.geometry.xMax, Math.max(0, chart.cursorIndex + (event.key === 'ArrowRight' ? 1 : -1)));
-      renderPlotsOnly();
-      $("#overlay-plot .plot-hit").focus();
-    });
+  function cursorFromPointer(event) {
+    if (!mainGeometry) return;
+    const rect = $("#overlay-canvas").getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    const ratio = (px - mainGeometry.left) / mainGeometry.width;
+    state.cursor = Math.min(mainGeometry.xMax, Math.max(0, Math.round(ratio * mainGeometry.xMax)));
+    renderMainChart();
+    renderTooltip(event.clientX, event.clientY);
   }
 
   function renderTabs() {
-    $("#regime-tabs").innerHTML = Object.entries(data.regimes).map(([key, regime]) => `<button type="button" role="tab" aria-selected="${key === state.regime}" data-regime="${key}">${regime.short_name}</button>`).join("");
-    $("#regime-tabs").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
+    const host = $("#regime-tabs");
+    host.innerHTML = Object.entries(data.regimes).map(([key, regime]) =>
+      `<button type="button" role="tab" aria-selected="${key === state.regime}" data-regime="${key}">${regime.short_name}</button>`
+    ).join("");
+    $$("button[data-regime]", host).forEach((button) => button.addEventListener("click", () => {
       state.regime = button.dataset.regime;
       state.cursor = null;
-      render();
+      renderAll();
     }));
   }
 
   function renderLegend() {
-    $("#legend").innerHTML = order.map((name) => `<button type="button" aria-pressed="${!state.hidden.has(name)}" data-scheduler="${name}"><i class="legend-swatch" style="background:${data.schedulers[name].color}"></i>${name}</button>`).join("");
-    $("#legend").querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
-      const name = button.dataset.scheduler;
-      if (state.hidden.has(name)) state.hidden.delete(name);
-      else if (state.hidden.size < order.length - 1) state.hidden.add(name);
-      renderPlotsOnly();
-      renderLegend();
-    }));
-  }
+    const host = $("#legend");
+    host.innerHTML = order.map((name) =>
+      `<button type="button" aria-pressed="${!state.hidden.has(name)}" data-scheduler="${name}"><i class="legend-swatch" style="background:${colorFor(name)};color:${colorFor(name)}"></i>${name}</button>`
+    ).join("");
 
-  function assetPath(name, extension) {
-    const metric = state.metric === "sigma" ? (state.scale === "log" ? "sigma-log" : "sigma") : "delta-sigma";
-    return `assets/${state.regime}/${name}-${metric}.${extension}`;
+    $$("button[data-scheduler]", host).forEach((button) => {
+      const name = button.dataset.scheduler;
+      button.addEventListener("click", (event) => {
+        if (event.shiftKey) {
+          state.hidden = new Set(order.filter((item) => item !== name));
+        } else if (state.hidden.has(name)) {
+          state.hidden.delete(name);
+        } else if (state.hidden.size < order.length - 1) {
+          state.hidden.add(name);
+        }
+        renderLegend();
+        renderCharts();
+      });
+      button.addEventListener("pointerenter", () => {
+        state.focus = name;
+        renderMainChart();
+      });
+      button.addEventListener("pointerleave", () => {
+        state.focus = null;
+        renderMainChart();
+      });
+    });
   }
 
   function renderCards() {
     const schedules = currentSchedules();
-    $("#scheduler-cards").innerHTML = order.map((name, index) => {
+    const host = $("#scheduler-cards");
+    host.innerHTML = order.map((name, index) => {
       const scheduler = data.schedulers[name];
-      const chart = makeSvg([name], true).markup;
-      const count = schedules[name].evaluations;
-      const sigmas = schedules[name].sigmas;
-      const lastFinite = sigmas[sigmas.length - 2];
-      return `<article class="scheduler-card" id="scheduler-${name}">
-        <div class="card-head"><i class="legend-swatch" style="background:${scheduler.color}"></i><span class="card-index">${String(index + 1).padStart(2, "0")} / ${String(order.length).padStart(2, "0")}</span></div>
-        <h3>${name}</h3>
-        <p class="description">${scheduler.description}</p>
-        <div class="mini-plot">${chart}</div>
-        <div class="card-meta"><span><code>${scheduler.parameters.replace("{steps}", state.steps)}</code></span><span>${data.regimes[state.regime].short_name} · ${count} schedule intervals · last finite σ ${formatValue(lastFinite)}</span><span><code>${data.regimes[state.regime].parameters}</code></span></div>
-        <div class="card-links"><a href="${scheduler.source}">Source ↗</a><a href="${assetPath(name, "svg")}">SVG (20)</a><a href="${assetPath(name, "png")}">PNG (20)</a></div>
+      const current = schedules[name];
+      const sigmas = current.sigmas;
+      const first = sigmas[0];
+      const lastFinite = sigmas.length > 1 ? sigmas[sigmas.length - 2] : sigmas[0];
+      return `<article class="scheduler-card" data-card="${name}">
+        <div class="scheduler-card-head">
+          <div class="scheduler-name"><i class="legend-swatch" style="background:${colorFor(name)};color:${colorFor(name)}"></i><h3>${name}</h3></div>
+          <span class="scheduler-index">${String(index + 1).padStart(2, "0")}/${String(order.length).padStart(2, "0")}</span>
+        </div>
+        <p class="scheduler-description">${scheduler.description}</p>
+        <div class="mini-chart"><canvas data-mini="${name}" aria-label="${name} scheduler chart"></canvas></div>
+        <dl class="scheduler-meta">
+          <div><dt>First σ</dt><dd>${formatValue(first)}</dd></div>
+          <div><dt>Last finite σ</dt><dd>${formatValue(lastFinite)}</dd></div>
+          <div><dt>Intervals</dt><dd>${current.evaluations}</dd></div>
+        </dl>
+        <div class="scheduler-card-footer"><code>${scheduler.parameters.replace("{steps}", state.steps)}</code><a href="${scheduler.source}">source ↗</a></div>
       </article>`;
     }).join("");
+    $$("canvas[data-mini]", host).forEach((canvas) => drawChart(canvas, [canvas.dataset.mini], { mini: true }));
   }
 
-  function renderPlotsOnly() {
-    renderOverlay();
+  function renderControls() {
+    const regime = data.regimes[state.regime];
+    $("#chart-regime-name").textContent = regime.name;
+    $("#regime-note").textContent = `${regime.parameters} · finite σ ${formatValue(regime.sigma_max)} → ${formatValue(regime.sigma_min)}`;
+    $("#steps").value = state.steps;
+    $("#steps-output").value = state.steps;
+    $$('[data-metric]').forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.metric === state.metric)));
+    $$('[data-scale]').forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.scale === state.scale)));
+    $(".scale-control").setAttribute("aria-hidden", String(state.metric !== "sigma"));
+    $("#chart-axis-note").textContent = state.metric === "sigma"
+      ? `x: schedule interval · y: sigma${state.scale === "log" ? " (symlog + terminal zero)" : ""}`
+      : "x: schedule interval · y: σᵢ − σᵢ₊₁";
+  }
+
+  function renderCharts() {
+    renderMainChart();
     renderCards();
   }
 
-  function render() {
-    const regime = data.regimes[state.regime];
+  function renderAll() {
     updateHash();
     renderTabs();
-    document.querySelectorAll("[data-metric]").forEach((button) => button.setAttribute("aria-pressed", button.dataset.metric === state.metric));
-    document.querySelectorAll("[data-scale]").forEach((button) => button.setAttribute("aria-pressed", button.dataset.scale === state.scale));
-    $(".scale-control").setAttribute("aria-hidden", state.metric !== "sigma");
-    $("#steps").value = state.steps;
-    $("#steps-output").value = state.steps;
-    $("#regime-note").innerHTML = `<p>${regime.description}</p><p><code>${regime.parameters}</code><br>finite σ range ${formatValue(regime.sigma_min)} → ${formatValue(regime.sigma_max)}</p>`;
-    const metricSlug = state.metric === "sigma" ? (state.scale === "log" ? "sigma-log" : "sigma") : "delta-sigma";
-    $("#overlay-assets").innerHTML = `<a href="assets/${state.regime}/all-schedulers-${metricSlug}.svg">Download default SVG</a><a href="assets/${state.regime}/all-schedulers-${metricSlug}.png">Download default PNG</a><span>Static assets use steps=${data.defaults.steps}</span>`;
+    renderControls();
     renderLegend();
-    renderPlotsOnly();
+    renderCharts();
+  }
+
+  function downloadChart() {
+    const canvas = $("#overlay-canvas");
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `comfyui-schedulers-${state.regime}-${state.metric}-${state.scale}-${state.steps}-steps.png`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, "image/png");
+  }
+
+  async function copyViewLink() {
+    const button = $("#copy-link");
+    const original = button.textContent;
+    try {
+      await navigator.clipboard.writeText(location.href);
+      button.textContent = "Copied";
+    } catch {
+      button.textContent = "Copy failed";
+    }
+    setTimeout(() => { button.textContent = original; }, 1200);
   }
 
   parseHash();
+
   const commit = data.generated_from.commit;
   $("#scheduler-count").textContent = order.length;
+  $("#step-range").textContent = `${data.step_range.min}–${data.step_range.max}`;
   $("#source-commit").textContent = commit.slice(0, 8);
   $("#source-commit").href = sourceRoot();
   $("#source-repository").href = sourceRoot();
   $("#footer-source").href = sourceRoot();
-  document.querySelectorAll("[data-metric]").forEach((button) => button.addEventListener("click", () => {
+
+  $$('[data-metric]').forEach((button) => button.addEventListener("click", () => {
     state.metric = button.dataset.metric;
     if (state.metric !== "sigma") state.scale = "linear";
     state.cursor = null;
-    render();
+    renderAll();
   }));
-  document.querySelectorAll("[data-scale]").forEach((button) => button.addEventListener("click", () => {
+
+  $$('[data-scale]').forEach((button) => button.addEventListener("click", () => {
     state.scale = button.dataset.scale;
     state.cursor = null;
-    render();
+    renderAll();
   }));
+
   $("#steps").addEventListener("input", (event) => {
     state.steps = Number(event.target.value);
     state.cursor = null;
-    render();
+    renderControls();
+    updateHash();
+    renderCharts();
   });
-  render();
+
+  $("#reset-lines").addEventListener("click", () => {
+    state.hidden.clear();
+    state.focus = null;
+    renderLegend();
+    renderCharts();
+  });
+  $("#download-chart").addEventListener("click", downloadChart);
+  $("#copy-link").addEventListener("click", copyViewLink);
+
+  const mainCanvas = $("#overlay-canvas");
+  mainCanvas.addEventListener("pointermove", cursorFromPointer);
+  mainCanvas.addEventListener("pointerdown", cursorFromPointer);
+  mainCanvas.addEventListener("pointerleave", () => {
+    state.cursor = null;
+    $("#chart-tooltip").hidden = true;
+    renderMainChart();
+  });
+
+  mainCanvas.setAttribute("tabindex", "0");
+  mainCanvas.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const xMax = mainGeometry?.xMax ?? state.steps;
+    const base = state.cursor ?? Math.round(xMax / 2);
+    state.cursor = Math.min(xMax, Math.max(0, base + (event.key === "ArrowRight" ? 1 : -1)));
+    renderMainChart();
+  });
+
+  const resizeObserver = new ResizeObserver(() => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      renderMainChart();
+      $$("canvas[data-mini]").forEach((canvas) => drawChart(canvas, [canvas.dataset.mini], { mini: true }));
+    });
+  });
+  resizeObserver.observe($("#chart-stage"));
+  resizeObserver.observe($("#scheduler-cards"));
+
+  renderAll();
 })();
