@@ -14,14 +14,14 @@
   const LOG_LINTHRESH = 1e-3;
 
   const COLORS = {
-    simple: "#4cc9f0",
+    simple: "#38bdf8",
     sgm_uniform: "#fb923c",
     karras: "#a78bfa",
     exponential: "#f472b6",
     ddim_uniform: "#4ade80",
     beta: "#facc15",
     normal: "#60a5fa",
-    linear_quadratic: "#f87171",
+    linear_quadratic: "#fb7185",
     kl_optimal: "#d6d3d1",
   };
 
@@ -36,6 +36,8 @@
   };
 
   let resizeFrame = 0;
+  let drawFrame = 0;
+  let drawFrame2 = 0;
   let mainGeometry = null;
 
   function colorFor(name) {
@@ -115,27 +117,99 @@
 
   function setupCanvas(canvas) {
     const rect = canvas.getBoundingClientRect();
-    const width = Math.max(1, rect.width);
-    const height = Math.max(1, rect.height);
-    const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+    if (rect.width < 8 || rect.height < 8) return null;
+
+    const width = rect.width;
+    const height = rect.height;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
     const pixelWidth = Math.max(1, Math.round(width * dpr));
     const pixelHeight = Math.max(1, Math.round(height * dpr));
     if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
       canvas.width = pixelWidth;
       canvas.height = pixelHeight;
     }
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { alpha: false });
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     return { ctx, width, height };
   }
 
+  function traceSmoothPath(ctx, points) {
+    if (!points.length) return;
+    ctx.moveTo(points[0].x, points[0].y);
+    if (points.length === 1) return;
+    if (points.length === 2) {
+      ctx.lineTo(points[1].x, points[1].y);
+      return;
+    }
+
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const p0 = points[Math.max(0, i - 1)];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[Math.min(points.length - 1, i + 2)];
+      const dx = p2.x - p1.x;
+
+      const span1 = Math.max(1e-9, p2.x - p0.x);
+      const span2 = Math.max(1e-9, p3.x - p1.x);
+      const slope1 = (p2.y - p0.y) / span1;
+      const slope2 = (p3.y - p1.y) / span2;
+
+      const low = Math.min(p1.y, p2.y);
+      const high = Math.max(p1.y, p2.y);
+      const cp1y = Math.min(high, Math.max(low, p1.y + slope1 * dx / 3));
+      const cp2y = Math.min(high, Math.max(low, p2.y - slope2 * dx / 3));
+
+      ctx.bezierCurveTo(
+        p1.x + dx / 3,
+        cp1y,
+        p2.x - dx / 3,
+        cp2y,
+        p2.x,
+        p2.y,
+      );
+    }
+  }
+
+  function drawSeriesPath(ctx, points, { color, alpha = 1, width = 2.35, mini = false, focused = false } = {}) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    ctx.beginPath();
+    traceSmoothPath(ctx, points);
+    ctx.strokeStyle = mini ? "rgba(4, 9, 15, .72)" : "rgba(3, 8, 14, .82)";
+    ctx.lineWidth = width + (focused ? 3.9 : 3.0);
+    ctx.stroke();
+
+    ctx.beginPath();
+    traceSmoothPath(ctx, points);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.stroke();
+
+    if (focused && !mini) {
+      ctx.globalAlpha = alpha * 0.28;
+      ctx.beginPath();
+      traceSmoothPath(ctx, points);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width + 5.8;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawChart(canvas, names, { mini = false, cursor = null } = {}) {
-    const { ctx, width, height } = setupCanvas(canvas);
+    const surface = setupCanvas(canvas);
+    if (!surface) return null;
+    const { ctx, width, height } = surface;
     const visible = mini ? names : names.filter((name) => !state.hidden.has(name));
     if (!visible.length) return null;
 
     const margin = mini
-      ? { left: 14, right: 12, top: 13, bottom: 18 }
+      ? { left: 12, right: 12, top: 12, bottom: 16 }
       : { left: width < 640 ? 54 : 66, right: 24, top: 24, bottom: 48 };
     const plot = {
       left: margin.left,
@@ -161,27 +235,29 @@
     };
 
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#0d1520";
+    ctx.fillStyle = "#0b121c";
     ctx.fillRect(0, 0, width, height);
 
     const bgGradient = ctx.createLinearGradient(0, plot.top, 0, plot.bottom);
-    bgGradient.addColorStop(0, "rgba(103,232,249,0.025)");
-    bgGradient.addColorStop(1, "rgba(103,232,249,0)");
+    bgGradient.addColorStop(0, "rgba(56,189,248,.035)");
+    bgGradient.addColorStop(0.55, "rgba(99,102,241,.012)");
+    bgGradient.addColorStop(1, "rgba(56,189,248,0)");
     ctx.fillStyle = bgGradient;
     ctx.fillRect(plot.left, plot.top, plot.width, plot.height);
 
+    const mono = getComputedStyle(document.documentElement).getPropertyValue("--mono") || "monospace";
     ctx.save();
-    ctx.font = `${mini ? 9 : 10}px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+    ctx.font = `${mini ? 9 : 10}px ${mono}`;
     ctx.textBaseline = "middle";
-    ctx.strokeStyle = "rgba(123, 148, 177, 0.16)";
-    ctx.fillStyle = "#74869c";
+    ctx.strokeStyle = "rgba(148, 163, 184, .11)";
+    ctx.fillStyle = "#75879d";
     ctx.lineWidth = 1;
 
     for (const tick of yTicks) {
       const py = y(tick);
       ctx.beginPath();
-      ctx.moveTo(plot.left, py + 0.5);
-      ctx.lineTo(plot.right, py + 0.5);
+      ctx.moveTo(plot.left, Math.round(py) + 0.5);
+      ctx.lineTo(plot.right, Math.round(py) + 0.5);
       ctx.stroke();
       if (!mini) {
         ctx.textAlign = "right";
@@ -194,19 +270,25 @@
       const index = Math.round((xMax * i) / xTickCount);
       const px = x(index);
       ctx.beginPath();
-      ctx.moveTo(px + 0.5, plot.top);
-      ctx.lineTo(px + 0.5, plot.bottom);
+      ctx.moveTo(Math.round(px) + 0.5, plot.top);
+      ctx.lineTo(Math.round(px) + 0.5, plot.bottom);
       ctx.stroke();
       if (!mini) {
         ctx.textAlign = "center";
         ctx.fillText(String(index), px, plot.bottom + 18);
       }
     }
+
+    ctx.strokeStyle = "rgba(226, 232, 240, .22)";
+    ctx.beginPath();
+    ctx.moveTo(plot.left, plot.bottom + 0.5);
+    ctx.lineTo(plot.right, plot.bottom + 0.5);
+    ctx.stroke();
     ctx.restore();
 
     if (!mini) {
       ctx.save();
-      ctx.font = `10px ${getComputedStyle(document.documentElement).getPropertyValue("--mono")}`;
+      ctx.font = `10px ${mono}`;
       ctx.fillStyle = "#8294aa";
       ctx.textAlign = "center";
       ctx.fillText("schedule interval / nominal evaluation", plot.left + plot.width / 2, height - 13);
@@ -218,55 +300,48 @@
 
     ctx.save();
     ctx.beginPath();
-    ctx.rect(plot.left, plot.top, plot.width, plot.height);
+    ctx.rect(plot.left - 8, plot.top - 8, plot.width + 16, plot.height + 16);
     ctx.clip();
 
-    for (const name of visible) {
+    const drawOrder = [...visible].sort((a, b) => {
+      if (state.focus === a) return 1;
+      if (state.focus === b) return -1;
+      return visible.indexOf(a) - visible.indexOf(b);
+    });
+
+    for (const name of drawOrder) {
       const series = seriesFor(name);
-      const isFocused = state.focus === null || state.focus === name;
-      const alpha = state.focus && state.focus !== name ? 0.16 : 1;
+      const points = series.map((value, index) => ({ x: x(index), y: y(value) }));
+      const focused = !mini && state.focus === name;
+      const alpha = !mini && state.focus && !focused ? 0.18 : 1;
       const color = colorFor(name);
 
       if (mini && state.metric === "sigma") {
-        ctx.beginPath();
-        series.forEach((value, index) => {
-          const px = x(index);
-          const py = y(value);
-          if (index === 0) ctx.moveTo(px, plot.bottom);
-          ctx.lineTo(px, py);
-        });
-        ctx.lineTo(x(series.length - 1), plot.bottom);
-        ctx.closePath();
         const fill = ctx.createLinearGradient(0, plot.top, 0, plot.bottom);
-        fill.addColorStop(0, `${color}22`);
+        fill.addColorStop(0, `${color}25`);
         fill.addColorStop(1, `${color}00`);
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, plot.bottom);
+        traceSmoothPath(ctx, points);
+        ctx.lineTo(points[points.length - 1].x, plot.bottom);
+        ctx.closePath();
         ctx.fillStyle = fill;
         ctx.fill();
       }
 
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = mini ? 2.2 : (isFocused ? 2.6 : 2.2);
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.shadowColor = mini ? "transparent" : `${color}45`;
-      ctx.shadowBlur = mini ? 0 : (isFocused ? 7 : 2);
-      ctx.beginPath();
-      series.forEach((value, index) => {
-        const px = x(index);
-        const py = y(value);
-        if (index === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+      drawSeriesPath(ctx, points, {
+        color,
+        alpha,
+        width: mini ? 2.05 : (focused ? 3.0 : 2.35),
+        mini,
+        focused,
       });
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-      ctx.globalAlpha = 1;
     }
 
     if (!mini && cursor !== null) {
       const index = Math.min(xMax, Math.max(0, cursor));
       const px = x(index);
-      ctx.strokeStyle = "rgba(226, 232, 240, .42)";
+      ctx.strokeStyle = "rgba(226, 232, 240, .34)";
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 5]);
       ctx.beginPath();
@@ -278,11 +353,11 @@
       for (const name of visible) {
         const series = seriesFor(name);
         if (index >= series.length) continue;
-        ctx.fillStyle = "#0d1520";
+        ctx.fillStyle = "#0b121c";
         ctx.strokeStyle = colorFor(name);
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.1;
         ctx.beginPath();
-        ctx.arc(px, y(series[index]), 4, 0, Math.PI * 2);
+        ctx.arc(px, y(series[index]), 3.7, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
@@ -294,6 +369,23 @@
 
   function renderMainChart() {
     mainGeometry = drawChart($("#overlay-canvas"), order, { cursor: state.cursor });
+  }
+
+  function renderMiniCharts() {
+    $$("canvas[data-mini]").forEach((canvas) => drawChart(canvas, [canvas.dataset.mini], { mini: true }));
+  }
+
+  function drawAllChartsNow() {
+    renderMainChart();
+    renderMiniCharts();
+  }
+
+  function queueChartDraw() {
+    cancelAnimationFrame(drawFrame);
+    cancelAnimationFrame(drawFrame2);
+    drawFrame = requestAnimationFrame(() => {
+      drawFrame2 = requestAnimationFrame(drawAllChartsNow);
+    });
   }
 
   function renderTooltip(clientX, clientY) {
@@ -316,10 +408,10 @@
     const localY = clientY - rect.top;
     const tooltipWidth = tooltip.offsetWidth || 240;
     const tooltipHeight = tooltip.offsetHeight || 250;
-    const x = Math.min(rect.width - tooltipWidth - 18, Math.max(8, localX + 12));
-    const y = Math.min(rect.height - tooltipHeight - 18, Math.max(8, localY + 12));
-    tooltip.style.left = `${x}px`;
-    tooltip.style.top = `${y}px`;
+    const left = Math.min(rect.width - tooltipWidth - 18, Math.max(8, localX + 12));
+    const top = Math.min(rect.height - tooltipHeight - 18, Math.max(8, localY + 12));
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
   }
 
   function cursorFromPointer(event) {
@@ -361,7 +453,7 @@
           state.hidden.add(name);
         }
         renderLegend();
-        renderCharts();
+        renderMainChart();
       });
       button.addEventListener("pointerenter", () => {
         state.focus = name;
@@ -398,7 +490,6 @@
         <div class="scheduler-card-footer"><code>${scheduler.parameters.replace("{steps}", state.steps)}</code><a href="${scheduler.source}">source ↗</a></div>
       </article>`;
     }).join("");
-    $$("canvas[data-mini]", host).forEach((canvas) => drawChart(canvas, [canvas.dataset.mini], { mini: true }));
   }
 
   function renderControls() {
@@ -416,8 +507,8 @@
   }
 
   function renderCharts() {
-    renderMainChart();
     renderCards();
+    queueChartDraw();
   }
 
   function renderAll() {
@@ -429,6 +520,7 @@
   }
 
   function downloadChart() {
+    renderMainChart();
     const canvas = $("#overlay-canvas");
     canvas.toBlob((blob) => {
       if (!blob) return;
@@ -488,7 +580,7 @@
     state.hidden.clear();
     state.focus = null;
     renderLegend();
-    renderCharts();
+    renderMainChart();
   });
   $("#download-chart").addEventListener("click", downloadChart);
   $("#copy-link").addEventListener("click", copyViewLink);
@@ -514,13 +606,13 @@
 
   const resizeObserver = new ResizeObserver(() => {
     cancelAnimationFrame(resizeFrame);
-    resizeFrame = requestAnimationFrame(() => {
-      renderMainChart();
-      $$("canvas[data-mini]").forEach((canvas) => drawChart(canvas, [canvas.dataset.mini], { mini: true }));
-    });
+    resizeFrame = requestAnimationFrame(queueChartDraw);
   });
   resizeObserver.observe($("#chart-stage"));
   resizeObserver.observe($("#scheduler-cards"));
 
   renderAll();
+  queueChartDraw();
+  window.addEventListener("load", queueChartDraw, { once: true });
+  if (document.fonts?.ready) document.fonts.ready.then(queueChartDraw).catch(() => {});
 })();
