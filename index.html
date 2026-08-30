@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Compare every built-in ComfyUI scheduler across normalized, MiniMax H3 flow, and classic SD/SDXL sampling regimes.">
+  <title>ComfyUI Scheduler Visualizer</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="data/schedules.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#reference">Skip to scheduler reference</a>
+  <header class="site-header">
+    <a class="wordmark" href="#top" aria-label="ComfyUI Scheduler Visualizer home">
+      <span class="wordmark-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>ComfyUI<br>Scheduler Visualizer</span>
+    </a>
+    <nav aria-label="Project links">
+      <a id="source-repository" href="https://github.com/Comfy-Org/ComfyUI">Pinned source</a>
+      <a href="https://github.com/Zironic/ComfyUI-Scheduler-Reference">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="eyebrow">A generated reference for ComfyUI</p>
+        <h1 id="page-title">See where every<br><em>sigma goes.</em></h1>
+        <p class="lede">Schedulers do not live in isolation. Compare the same requested step count through a neutral sigma table, MiniMax H3 flow, Krea 2, and classic SD/SDXL diffusion.</p>
+      </div>
+      <dl class="hero-facts">
+        <div><dt>Schedulers</dt><dd id="scheduler-count">9</dd></div>
+        <div><dt>Default steps</dt><dd>20</dd></div>
+        <div><dt>Source revision</dt><dd><a id="source-commit" href="#">loading…</a></dd></div>
+      </dl>
+    </section>
+
+    <section class="instrument" aria-labelledby="comparison-title">
+      <div class="instrument-head">
+        <div>
+          <p class="section-label">Comparison plot</p>
+          <h2 id="comparison-title">All schedulers, one sampling regime</h2>
+        </div>
+        <p class="scrub-hint"><span aria-hidden="true">↔</span> Scrub the plot for exact values</p>
+      </div>
+
+      <div class="regime-tabs" id="regime-tabs" role="tablist" aria-label="Model sampling regime"></div>
+
+      <div class="control-rail">
+        <div class="plot-controls">
+          <div class="metric-control" role="group" aria-label="Plot metric">
+            <button type="button" data-metric="sigma" aria-pressed="true">Sigma</button>
+            <button type="button" data-metric="drops" aria-pressed="false">Δsigma</button>
+          </div>
+          <div class="scale-control" role="group" aria-label="Sigma scale">
+            <button type="button" data-scale="linear" aria-pressed="true">Linear</button>
+            <button type="button" data-scale="log" aria-pressed="false">Log</button>
+          </div>
+        </div>
+        <label class="steps-control" for="steps">
+          <span>Requested steps</span>
+          <input id="steps" type="range" min="2" max="50" value="20">
+          <output id="steps-output" for="steps">20</output>
+        </label>
+      </div>
+
+      <div class="regime-note" id="regime-note"></div>
+      <div class="plot-shell">
+        <div id="overlay-plot" class="plot plot-large" aria-label="Scheduler comparison chart"></div>
+        <aside id="plot-readout" class="plot-readout" aria-live="polite"></aside>
+      </div>
+      <div id="legend" class="legend" aria-label="Toggle scheduler lines"></div>
+      <div class="asset-links" id="overlay-assets"></div>
+    </section>
+
+    <section class="how-to-read" aria-labelledby="read-title">
+      <p class="section-label">How to read it</p>
+      <h2 id="read-title">The curve and the cost are related—not identical.</h2>
+      <div class="reading-grid">
+        <p><strong>Sigma</strong> shows the noise level passed into each nominal sampling interval. A steep segment removes more noise at once.</p>
+        <p><strong>Log sigma</strong> expands the low-noise tail. The appended terminal zero cannot exist on a log axis, so it is marked but excluded.</p>
+        <p><strong>Δsigma</strong> is the signed drop <code>σᵢ − σᵢ₊₁</code>. Peaks reveal where a schedule concentrates its movement.</p>
+        <p><strong>Requested steps</strong> normally produces that many intervals. Solver choice can add model calls, so this is not a universal NFE counter.</p>
+      </div>
+    </section>
+
+    <section id="reference" class="reference" aria-labelledby="reference-title">
+      <div class="reference-head">
+        <div>
+          <p class="section-label">Scheduler index</p>
+          <h2 id="reference-title">One trace at a time</h2>
+        </div>
+        <p>Every card links to the exact function in the pinned ComfyUI revision and to ready-to-embed SVG and PNG files.</p>
+      </div>
+      <div id="scheduler-cards" class="scheduler-grid"></div>
+    </section>
+
+    <section class="method" aria-labelledby="method-title">
+      <p class="section-label">Method</p>
+      <h2 id="method-title">Generated, pinned, inspectable.</h2>
+      <div class="method-grid">
+        <p>The Python generator reimplements the small scheduler formulas, verifies the registry and H3 settings against the pinned checkout, then writes the site data and all static assets.</p>
+        <p>The normalized tab is a declared canonical model-sampling object—not a claim that every scheduler is model-independent. Simple, DDIM, beta, normal, and SGM uniform depend on the supplied sigma table or timestep mapping.</p>
+        <p><a href="data/schedules.json">Download the complete JSON dataset</a> or <a href="generate.py">inspect the generator</a>. CI refuses to generate from a ComfyUI revision other than the repository pin.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>ComfyUI Scheduler Visualizer</p>
+    <p>Generated from <a id="footer-source" href="https://github.com/Comfy-Org/ComfyUI">ComfyUI</a>. No runtime, no tracking, no mystery.</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,4 @@
+assets/** linguist-generated=true
+assets/**/*.svg -diff
+data/schedules.* linguist-generated=true
+
