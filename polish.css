@@ -1,0 +1,30 @@
+/* Visual polish layered after styles.css. */
+.hero-copy {
+  max-width: 1080px;
+}
+
+h1 {
+  max-width: 1080px;
+  font-size: clamp(46px, 5.2vw, 82px);
+  line-height: .96;
+  letter-spacing: -.05em;
+}
+
+@media (max-width: 1050px) {
+  .hero {
+    padding-top: 64px;
+  }
+
+  h1 {
+    max-width: 900px;
+    font-size: clamp(44px, 6.1vw, 68px);
+  }
+}
+
+@media (max-width: 760px) {
+  h1 {
+    font-size: clamp(42px, 11.5vw, 62px);
+    line-height: .98;
+    letter-spacing: -.045em;
+  }
+}
